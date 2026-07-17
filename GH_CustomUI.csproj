@@ -10,7 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="Grasshopper" Version="8.19.25132.1001" IncludeAssets="compile;build" />
-    <PackageReference Include="MessagePack" Version="3.1.4" />
+    <PackageReference Include="MessagePack" Version="3.1.8" />
   </ItemGroup>
 
 </Project>
