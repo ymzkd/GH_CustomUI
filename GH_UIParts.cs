@@ -88,6 +88,17 @@ namespace GH_CustomUI
     }
 
     /// <summary>
+    /// ラベルとコントロール(チェックボックス/ラジオボタン)の並び
+    /// </summary>
+    public enum LabelOrientation
+    {
+        /// <summary>ラベルが上、コントロールが下</summary>
+        Vertical,
+        /// <summary>ラベルが左、コントロールが右</summary>
+        Horizontal
+    }
+
+    /// <summary>
     /// ComponentUIパーツの基本クラス
     /// </summary>
     public abstract class GH_UIParts : IGH_TooltipAwareObject

@@ -48,6 +48,12 @@ namespace GH_CustomUI
         public bool[] Toggles;
         public bool MultiSelect { get; set; }
         public SelectorButtonStyle ButtonStyle;
+
+        /// <summary>ラベルとボタンの並び</summary>
+        public LabelOrientation Orientation { get; set; } = LabelOrientation.Vertical;
+
+        /// <summary>横並び時のラベルとボタンの間隔</summary>
+        public float LabelSpacing = 4f;
         //public ButtonGroupSelectionType SelectionType
         //    => MultiSelect?ButtonGroupSelectionType.Multiple:ButtonGroupSelectionType.RadioGroup;
 
@@ -63,13 +69,24 @@ namespace GH_CustomUI
         private Font label_font = GH_FontServer.Standard;
         private float radio_button_size = 10f;
 
-        private float column_width;
         private float label_width;
         private float label_height;
         private float column_space
         {
             get { return (Bounds.Width - Margin * 2 - column_width * Columns) / Columns; }
         }
+
+        /// <summary>1要素あたりの幅（並びによってラベルとボタンの積み方が変わる）</summary>
+        private float column_width
+            => Orientation == LabelOrientation.Horizontal
+                ? label_width + LabelSpacing + radio_button_size
+                : Math.Max(label_width, radio_button_size);
+
+        /// <summary>1行あたりの高さ（上下のMarginを含む）</summary>
+        private float row_height
+            => Margin * 2 + (Orientation == LabelOrientation.Horizontal
+                ? Math.Max(label_height, radio_button_size)
+                : label_height + radio_button_size);
 
         /// <summary>
         /// Initialize GroupTogglesUI.
@@ -88,7 +105,6 @@ namespace GH_CustomUI
                 label_font.Size / GH_GraphicsUtil.UiScale, label_font.Style);
             label_width = MaxTextWidth(Labels, label_font) + 8f;
             label_height = label_font.Height;
-            column_width = Math.Max(label_width, radio_button_size);
 
             Bounds = new RectangleF(0, 0, MinWidth(), Height());
             radio_bounds = new RectangleF[Count];
@@ -110,7 +126,7 @@ namespace GH_CustomUI
         }
 
         public override float Height()
-            => Margin + (Margin * 2 + label_height + radio_button_size) * Rows;
+            => Margin + row_height * Rows;
 
         public override float MinWidth()
             => Margin * (Columns + 1) + column_width * Columns;
@@ -196,14 +212,42 @@ namespace GH_CustomUI
 
         public override void UpdateLayout()
         {
+            float radio_height_gage = row_height;
+
+            if (Orientation == LabelOrientation.Horizontal)
+            {
+                // 各要素についてラベルとボタンを横に並べる
+                float cell_x0 = Margin + Bounds.X + column_space * 0.5f;
+                float cell_y0 = Margin + Bounds.Y;
+                float cell_height = radio_height_gage - Margin * 2;
+
+                for (int i = 0; i < Count; i++)
+                {
+                    int row = i / Columns;
+                    int col = i % Columns;
+
+                    float cell_x = cell_x0 + (column_width + column_space) * col;
+                    float center_y = cell_y0 + row * radio_height_gage + cell_height / 2f;
+
+                    label_bounds[i].X = cell_x;
+                    label_bounds[i].Y = center_y - label_height / 2f;
+                    label_bounds[i].Width = label_width;
+                    label_bounds[i].Height = label_height;
+
+                    radio_bounds[i].X = cell_x + label_width + LabelSpacing;
+                    radio_bounds[i].Y = center_y - radio_button_size / 2f;
+                    radio_bounds[i].Width = radio_button_size;
+                    radio_bounds[i].Height = radio_button_size;
+                }
+                return;
+            }
+
             // Radio ButtonのRectangleFをUpdateする。
             // -> BoundsはCustomAttribute側で更新されている
             float x0 = Margin + Bounds.X + column_space * 0.5f;
             float y0 = Margin + Bounds.Y;
             float x1 = Margin + (column_width - radio_button_size) / 2f + Bounds.X + column_space * 0.5f;
             float y1 = Margin * 2f + label_height + Bounds.Y;
-
-            float radio_height_gage = Margin * 2 + label_height + radio_button_size;
 
             for (int i = 0; i < Count; i++)
             {

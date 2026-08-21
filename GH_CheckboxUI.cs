@@ -11,7 +11,8 @@ namespace GH_CustomUI
 {
     /// <summary>
     /// 単一のチェックボックスUI
-    /// GroupTogglesUI形式のレイアウト（ラベルが上、チェックボックスが下）
+    /// 既定は GroupTogglesUI形式のレイアウト（ラベルが上、チェックボックスが下）
+    /// Orientation を Horizontal にするとラベルが左、チェックボックスが右の横並びになる
     /// </summary>
     public class CheckboxUI : GH_UIParts
     {
@@ -19,6 +20,12 @@ namespace GH_CustomUI
         public string Label;
 
         public float Margin = 2f;
+
+        /// <summary>ラベルとチェックボックスの並び</summary>
+        public LabelOrientation Orientation { get; set; } = LabelOrientation.Vertical;
+
+        /// <summary>横並び時のラベルとチェックボックスの間隔</summary>
+        public float LabelSpacing = 4f;
 
         private Font label_font = GH_FontServer.Standard;
         private float label_height;
@@ -31,10 +38,12 @@ namespace GH_CustomUI
         // Action
         public Action CheckedChanged { get; set; }
 
-        public CheckboxUI(string label, bool checked_value = false)
+        public CheckboxUI(string label, bool checked_value = false,
+            LabelOrientation orientation = LabelOrientation.Vertical)
         {
             Label = label;
             Checked = checked_value;
+            Orientation = orientation;
 
             label_font = new Font(label_font.FontFamily,
                 label_font.Size / GH_GraphicsUtil.UiScale, label_font.Style);
@@ -91,11 +100,15 @@ namespace GH_CustomUI
         }
 
         public override float Height()
-            => Margin * 3 + label_height + checkbox_size;
+            => Orientation == LabelOrientation.Horizontal
+                ? Margin * 2 + Math.Max(label_height, checkbox_size)
+                : Margin * 3 + label_height + checkbox_size;
 
         public override float MinWidth()
         {
-            float content_width = Math.Max(label_width, checkbox_size);
+            float content_width = Orientation == LabelOrientation.Horizontal
+                ? label_width + LabelSpacing + checkbox_size
+                : Math.Max(label_width, checkbox_size);
             return content_width + Margin * 2;
         }
 
@@ -117,6 +130,25 @@ namespace GH_CustomUI
 
         public override void UpdateLayout()
         {
+            if (Orientation == LabelOrientation.Horizontal)
+            {
+                // ラベルとチェックボックスを横に並べて中央に配置
+                float content_width = label_width + LabelSpacing + checkbox_size;
+                float content_x = Bounds.X + (Bounds.Width - content_width) / 2f;
+                float center_y = Bounds.Y + Bounds.Height / 2f;
+
+                label_bounds.X = content_x;
+                label_bounds.Y = center_y - label_height / 2f;
+                label_bounds.Width = label_width;
+                label_bounds.Height = label_height;
+
+                checkbox_bounds.X = content_x + label_width + LabelSpacing;
+                checkbox_bounds.Y = center_y - checkbox_size / 2f;
+                checkbox_bounds.Width = checkbox_size;
+                checkbox_bounds.Height = checkbox_size;
+                return;
+            }
+
             // ラベルの配置（上部中央）
             label_bounds.X = Bounds.X + Margin;
             label_bounds.Y = Bounds.Y + Margin;
