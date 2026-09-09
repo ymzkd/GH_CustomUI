@@ -13,7 +13,11 @@ namespace GH_CustomUI
 {
     public class GH_UIComponentAttributes : GH_ComponentAttributes, IPartsOwner
     {
-        GH_UIParts ActiveObject;
+        /// <summary>
+        /// ドラッグ操作中のUIパーツ。Capture を返したパーツをここに入れておくと、
+        /// 以降の MouseMove / MouseUp が componentUIs を経由せず直接送られる。
+        /// </summary>
+        protected GH_UIParts ActiveObject;
 
         private static readonly FieldInfo s_renderTagsField =
             typeof(GH_LinkedParamAttributes).GetField(

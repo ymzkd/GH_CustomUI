@@ -1,4 +1,4 @@
-using Grasshopper.GUI;
+﻿using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using System;
@@ -149,8 +149,19 @@ namespace GH_CustomUI
         public float SeekParam { get; set; } = 0.5f; // Seek position for the graph
         public float SeekPositionX => SeekParam * PlotBound.Width + PlotBound.Left; // Seek position in pixels
         private bool grab_handle = false; // Flag to indicate if the handle is being dragged
-        private float grab_locationX = 0; // X position of the handle when grabbed
-        private float grab_param = 0; // Parameter value when grabbed
+        private bool mouse_over_seek = false; // シーク領域にカーソルがあるか(離脱時にカーソルを戻すため)
+
+        /// <summary>
+        /// シークバーの位置が動くたびに呼ばれる(ドラッグ中も毎回)。
+        /// 時刻ラベルなど、追従表示させたいUIの更新に使う。
+        /// </summary>
+        public Action<float> SeekParamChanged;
+
+        /// <summary>
+        /// シークバーの操作が確定した(マウスを離した)ときに呼ばれる。
+        /// 重い処理はドラッグ中ではなくこちらで行うこと。
+        /// </summary>
+        public Action<float> SeekCommitted;
 
         public RectangleF PlotBound
         {
@@ -856,18 +867,48 @@ namespace GH_CustomUI
         /// <summary>
         /// 仮にこれだけ実装。他のUIイベントも実装する。
         /// </summary>
-        public override UIResponse RespondToMouseDown(GH_Canvas sender, GH_CanvasMouseEvent e)
+        /// <summary>
+        /// シーク操作の当たり判定。RectangleF.Contains は右端・下端を含まないため、
+        /// 端(0%/100%)を確実に掴めるよう左右にわずかな余白を持たせて判定する。
+        /// </summary>
+        public bool IsSeekArea(PointF pt)
         {
             if (SeekBarMode != GraphSeekBarMode.Interactive)
+                return false;
+
+            const float margin = 3f;
+            RectangleF rect = PlotBound;
+            return pt.X >= rect.Left - margin && pt.X <= rect.Right + margin
+                && pt.Y >= rect.Top && pt.Y <= rect.Bottom;
+        }
+
+        /// <summary>シークバーの線を直接掴んだとみなす、線からの距離[px]</summary>
+        private const float SeekHandleGrabWidth = 5f;
+
+        /// <summary>キャンバス座標のX位置をシークパラメータ(0-1)に変換して設定する</summary>
+        private void SetSeekParamFromX(float canvasX)
+        {
+            RectangleF rect = PlotBound;
+            if (rect.Width <= 0f)
+                return;
+
+            float param = (canvasX - rect.Left) / rect.Width;
+            SeekParam = param < 0f ? 0f : (param > 1f ? 1f : param);
+        }
+
+        public override UIResponse RespondToMouseDown(GH_Canvas sender, GH_CanvasMouseEvent e)
+        {
+            if (SeekBarMode != GraphSeekBarMode.Interactive || e.Button != MouseButtons.Left)
                 return base.RespondToMouseDown(sender, e);
 
-            float deltax = 5f;
-            if (Math.Abs(e.CanvasLocation.X - SeekPositionX) < deltax)
+            // 動画の再生バーと同じく、プロット内のどこを押してもその位置へ飛ばし、
+            // そのままドラッグへ移行する(ハンドルを掴む必要はない)
+            if (IsSeekArea(e.CanvasLocation))
             {
                 sender.Cursor = Cursors.SizeWE;
                 grab_handle = true;
-                grab_locationX = e.CanvasLocation.X;
-                grab_param = SeekParam;
+                SetSeekParamFromX(e.CanvasLocation.X);
+                SeekParamChanged?.Invoke(SeekParam);
                 return new UIResponse(GH_ObjectResponse.Capture);
             }
             return base.RespondToMouseDown(sender, e);
@@ -878,10 +919,16 @@ namespace GH_CustomUI
             if (SeekBarMode != GraphSeekBarMode.Interactive)
                 return base.RespondToMouseUp(sender, e);
 
+            // 左ボタン以外を離してもドラッグは終わらせない(左を押したままのため)
+            if (e.Button != MouseButtons.Left)
+                return base.RespondToMouseUp(sender, e);
+
             if (grab_handle)
             {
                 grab_handle = false;
                 sender.Cursor = Cursors.Default;
+                // 位置が確定してから重い処理を走らせる
+                SeekCommitted?.Invoke(SeekParam);
                 return new UIResponse(GH_ObjectResponse.Release);
             }
             return base.RespondToMouseUp(sender, e);
@@ -894,23 +941,48 @@ namespace GH_CustomUI
 
             if (grab_handle)
             {
-                RectangleF rect = PlotBound;
-                SeekParam = (e.CanvasLocation.X - rect.Left) / rect.Width;
-                if (SeekParam < 0) SeekParam = 0;
-                if (SeekParam > 1) SeekParam = 1;
+                sender.Cursor = Cursors.SizeWE;
+                SetSeekParamFromX(e.CanvasLocation.X);
+                SeekParamChanged?.Invoke(SeekParam);
 
                 Owner.OnDisplayExpired();
-                return new UIResponse(GH_ObjectResponse.Ignore);
-            }
-
-            float deltax = 5f;
-            if (Math.Abs(e.CanvasLocation.X - SeekPositionX) < deltax)
-            {
-                sender.Cursor = Cursors.SizeWE;
                 return new UIResponse(GH_ObjectResponse.Handled);
             }
 
+            // 右ボタンなどでのドラッグには反応しない(ホバーは Button == None)
+            if (e.Button != MouseButtons.None && e.Button != MouseButtons.Left)
+            {
+                ResetSeekCursor(sender);
+                return base.RespondToMouseMove(sender, e);
+            }
+
+            if (IsSeekArea(e.CanvasLocation))
+            {
+                // シーク線の上は左右へ動かせることを、それ以外はその位置を
+                // 指定できることを示す
+                mouse_over_seek = true;
+                sender.Cursor = Math.Abs(e.CanvasLocation.X - SeekPositionX) < SeekHandleGrabWidth
+                    ? Cursors.SizeWE
+                    : Cursors.Hand;
+                return new UIResponse(GH_ObjectResponse.Handled);
+            }
+
+            ResetSeekCursor(sender);
+
             return base.RespondToMouseMove(sender, e);
+        }
+
+        /// <summary>
+        /// シーク用に変えたカーソルを既定へ戻す。
+        /// 領域外へ出たときに誰も戻してくれないので自前で行う。
+        /// </summary>
+        private void ResetSeekCursor(GH_Canvas sender)
+        {
+            if (!mouse_over_seek)
+                return;
+
+            mouse_over_seek = false;
+            sender.Cursor = Cursors.Default;
         }
 
         /// <summary>

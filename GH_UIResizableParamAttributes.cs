@@ -12,7 +12,13 @@ namespace GH_CustomUI
 {
     public class GH_UIResizableParamAttributes<T> : GH_ResizableAttributes<T>, IPartsOwner where T : IGH_Param
     {
-        GH_UIParts ActiveObject;
+        /// <summary>
+        /// ドラッグ操作中のUIパーツ。Capture を返したパーツをここに入れておくと、
+        /// 以降の MouseMove / MouseUp が componentUIs を経由せず直接送られる。
+        /// componentUIs に含めず手動配置しているパーツ(可変高のグラフなど)を
+        /// ドラッグさせたい場合は、派生クラスから設定する。
+        /// </summary>
+        protected GH_UIParts ActiveObject;
 
         public GH_UIResizableParamAttributes(T owner) : base(owner)
         {
