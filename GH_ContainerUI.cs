@@ -80,6 +80,12 @@ namespace GH_CustomUI
                 throw new InvalidOperationException("ComponentUI must have an owner.");
 
             ui.Owner = Owner;
+
+            // Serialize時の名前に使う登録順。
+            // このコンテナ専用のチャンクに書くため、
+            // 一意であればよいのはコンテナの中だけとなる
+            if (ui.Index < 0) ui.Index = UIParts.Count;
+
             UIParts.Add(ui);
         }
 
@@ -178,18 +184,46 @@ namespace GH_CustomUI
 
         public override bool Write(GH_IWriter writer)
         {
+            // 子は専用のチャンクに書き出す。
+            // 親と同じ名前空間に置くと、入れ子のパーツどうしで名前が衝突する
+            GH_IWriter sub = ChunkWriter(writer);
             foreach (GH_UIParts ui in UIParts)
-                ui.Write(writer);
+            {
+                try { ui.Write(sub); }
+                catch (Exception) { }
+            }
 
-            return base.Write(writer);
+            return true;
         }
 
         public override bool Read(GH_IReader reader)
         {
-            foreach (GH_UIParts ui in UIParts)
-                ui.Read(reader);
+            GH_IReader sub = ChunkReader(reader);
+            if (sub == null) return false;
 
-            return base.Read(reader);
+            foreach (GH_UIParts ui in UIParts)
+            {
+                try { ui.Read(sub); }
+                catch (Exception) { }
+            }
+
+            return true;
+        }
+
+        /// <summary>子を書き出すチャンクを作る</summary>
+        private GH_IWriter ChunkWriter(GH_IWriter writer)
+            => Index < 0
+                ? writer.CreateChunk(GetType().Name)
+                : writer.CreateChunk(GetType().Name, Index);
+
+        /// <summary>子を読み込むチャンクを取得する。無ければnull</summary>
+        private GH_IReader ChunkReader(GH_IReader reader)
+        {
+            string name = GetType().Name;
+            if (Index < 0)
+                return reader.ChunkExists(name) ? reader.FindChunk(name) : null;
+
+            return reader.ChunkExists(name, Index) ? reader.FindChunk(name, Index) : null;
         }
     }
 }

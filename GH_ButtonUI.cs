@@ -24,6 +24,11 @@ namespace GH_CustomUI
 
         public abstract ButtonState ButtonState { get; }
 
+        /// <summary>
+        /// DownIconを表示する条件。既定ではボタンが押し込まれた状態。
+        /// </summary>
+        protected virtual bool UseDownIcon => ButtonState == ButtonState.Down;
+
         public ButtonColourTheme ColourTheme { get; set; } = new ButtonColourTheme();
 
         public Action OnClicked { get; set; } = () => { };
@@ -112,7 +117,7 @@ namespace GH_CustomUI
                 // Button Contents
                 if (IsRenderIcon)
                 {
-                    bool swap_icon = (ButtonState == ButtonState.Down) && DownIcon != null;
+                    bool swap_icon = UseDownIcon && DownIcon != null;
                     graphics.DrawImage(swap_icon ? DownIcon : Icon,
                             buttonBounds.X + buttonBounds.Width / 2 - Height() / 2 + Margin,
                             buttonBounds.Y + Margin / 2,
@@ -219,6 +224,13 @@ namespace GH_CustomUI
 
         public bool Checked { get; set; } = false;
 
+        /// <summary>
+        /// アイコンの切り替えはオンオフの状態だけで決める。
+        /// 押下中(mouseDown)に切り替えると、確定前にオン側の図柄が
+        /// 見えてしまうため。
+        /// </summary>
+        protected override bool UseDownIcon => Checked;
+
         public ToggleButtonUI() : base()
         {
             ColourTheme.Primary = Color.Gray;
@@ -230,6 +242,17 @@ namespace GH_CustomUI
             RoundRadious = 0.5f;
             ColourTheme.Primary = Color.Gray;
             Checked = button_checked;
+        }
+
+        /// <summary>
+        /// オンオフでアイコンを描き分けるボタン
+        /// </summary>
+        /// <param name="on_icon">オン状態のアイコン</param>
+        /// <param name="off_icon">オフ状態のアイコン</param>
+        public ToggleButtonUI(Bitmap on_icon, Bitmap off_icon, bool button_checked = false)
+            : this(off_icon, button_checked)
+        {
+            DownIcon = on_icon;
         }
 
         public ToggleButtonUI(string label, bool button_checked=false) : base(label)

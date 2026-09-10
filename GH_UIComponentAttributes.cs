@@ -2,6 +2,7 @@
 using Grasshopper.GUI;
 using Grasshopper.Kernel.Attributes;
 using Grasshopper.Kernel;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Forms;
@@ -40,6 +41,10 @@ namespace GH_CustomUI
         public void AddUI(GH_UIParts ui)
         {
             ui.Owner = this;
+
+            // Serialize時の名前に使う登録順。明示指定されていれば尊重する
+            if (ui.Index < 0) ui.Index = componentUIs.Count;
+
             componentUIs.Add(ui);
         }
 
@@ -463,16 +468,25 @@ namespace GH_CustomUI
 
         public override bool Write(GH_IWriter writer)
         {
+            // 一つのUIパーツの失敗で他のパーツの保存が止まらないようにする
             foreach (GH_UIParts ui in componentUIs)
-                ui.Write(writer);
+            {
+                try { ui.Write(writer); }
+                catch (Exception) { }
+            }
 
             return base.Write(writer);
         }
 
         public override bool Read(GH_IReader reader)
         {
+            // 保存形式が変わったUIパーツがあっても、他のパーツの読み込みは継続する。
+            // 読めなかったパーツは既定値のままとなる。
             foreach (GH_UIParts ui in componentUIs)
-                ui.Read(reader);
+            {
+                try { ui.Read(reader); }
+                catch (Exception) { }
+            }
 
             return base.Read(reader);
         }

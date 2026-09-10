@@ -144,6 +144,8 @@ namespace GH_CustomUI
 
         private void OnValueChanged()
         {
+            NotifyDocumentModified();
+
             Owner.Owner.RecordUndoEvent("Checked",
                 new SwitchButtonAction(Value, this));
 

@@ -43,6 +43,10 @@ namespace GH_CustomUI
         public void AddUI(GH_UIParts ui)
         {
             ui.Owner = this;
+
+            // Serialize時の名前に使う登録順。明示指定されていれば尊重する
+            if (ui.Index < 0) ui.Index = componentUIs.Count;
+
             componentUIs.Add(ui);
         }
 

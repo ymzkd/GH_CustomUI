@@ -1,4 +1,4 @@
-using GH_IO.Serialization;
+﻿using GH_IO.Serialization;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
@@ -360,6 +360,8 @@ namespace GH_CustomUI
         /// <param name="post">新しく選択されたアイテムのインデックス</param>
         private void OnSelectChanged(int pre, int post)
         {
+            NotifyDocumentModified();
+
             Owner.Owner.RecordUndoEvent("Radio_Selector",
                 new GroupTogglesUndoAction(pre, post, this));
         }
@@ -420,9 +422,19 @@ namespace GH_CustomUI
 
         public override bool Read(GH_IReader reader)
         {
-            // boolean配列のデシリアライズ
-            byte[] byteArray = reader.GetByteArray(UniqueName);
-            bool[] loadedToggles = MessagePackSerializer.Deserialize<bool[]>(byteArray);
+            // 保存されていない場合は既定値のまま
+            if (!reader.ItemExists(UniqueName)) return false;
+
+            bool[] loadedToggles;
+            try
+            {
+                loadedToggles = MessagePackSerializer.Deserialize<bool[]>(reader.GetByteArray(UniqueName));
+            }
+            catch
+            {
+                return false;
+            }
+            if (loadedToggles == null) return false;
 
             // 配列サイズが異なる場合の互換性処理
             if (loadedToggles.Length == Labels.Length)

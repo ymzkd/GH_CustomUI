@@ -927,6 +927,12 @@ namespace GH_CustomUI
             {
                 grab_handle = false;
                 sender.Cursor = Cursors.Default;
+
+                // 離した位置から改めて求める。SeekParamはドラッグ中に
+                // 外部(再生位置の反映など)から書き換えられている場合があり、
+                // フィールドをそのまま渡すと操作した位置と食い違う
+                SetSeekParamFromX(e.CanvasLocation.X);
+
                 // 位置が確定してから重い処理を走らせる
                 SeekCommitted?.Invoke(SeekParam);
                 return new UIResponse(GH_ObjectResponse.Release);

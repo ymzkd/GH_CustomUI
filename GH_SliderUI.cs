@@ -219,6 +219,8 @@ namespace GH_CustomUI
         {
             if (recorded_value == Value) return;
 
+            NotifyDocumentModified();
+
             Owner.Owner.RecordUndoEvent("Slider",
                 new SliderUIUndoAction(this, recorded_value, Value));
 
@@ -428,16 +430,18 @@ namespace GH_CustomUI
 
         public override bool Read(GH_IReader reader)
         {
-            double value = 0;
-            double minvalue = 0;
-            double maxvalue = 0;
-            reader.TryGetDouble(UniqueName, ref value);
-            reader.TryGetDouble(UniqueName + "Min", ref minvalue);
-            reader.TryGetDouble(UniqueName + "Max", ref maxvalue);
+            // 保存されていない項目は現在の値を維持する
+            // （0で上書きするとスライダの範囲が潰れてしまう）
+            double value = Value;
+            double minvalue = MinValue;
+            double maxvalue = MaxValue;
+            if (reader.TryGetDouble(UniqueName, ref value))
+                Value = value;
+            if (reader.TryGetDouble(UniqueName + "Min", ref minvalue))
+                MinValue = minvalue;
+            if (reader.TryGetDouble(UniqueName + "Max", ref maxvalue))
+                MaxValue = maxvalue;
 
-            Value = value;
-            MinValue = minvalue;
-            MaxValue = maxvalue;
             return base.Read(reader);
         }
     } // SliderUI
