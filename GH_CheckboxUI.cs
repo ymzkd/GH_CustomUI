@@ -1,4 +1,4 @@
-using GH_IO.Serialization;
+﻿using GH_IO.Serialization;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
@@ -181,6 +181,8 @@ namespace GH_CustomUI
 
         private void OnCheckedChanged()
         {
+            NotifyDocumentModified();
+
             Owner.Owner.RecordUndoEvent("Checkbox",
                 new CheckboxUndoAction(Checked, this));
 

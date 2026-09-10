@@ -109,6 +109,8 @@ namespace GH_CustomUI
 
         public void OnValueChanged(string pre, string post)
         {
+            NotifyDocumentModified();
+
             Owner.Owner.RecordUndoEvent("TextChenged",
                 new TextBoxUIUndoAction(pre, post, this));
             ValueChanged?.Invoke();

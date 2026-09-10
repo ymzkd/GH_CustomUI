@@ -298,6 +298,8 @@ namespace GH_CustomUI
 
         private void OnCheckedChanged()
         {
+            NotifyDocumentModified();
+
             CheckedChanged?.Invoke();
         }
 
@@ -326,16 +328,26 @@ namespace GH_CustomUI
 
         public override bool Read(GH_IReader reader)
         {
-            // boolean配列のデシリアライズ
-            //BinaryFormatter formatter = new BinaryFormatter();
+            // 保存されていない場合は既定値のまま
+            if (!reader.ItemExists(UniqueName)) return false;
+
+            bool[] bools;
+            try
             {
-                byte[] byteArray = reader.GetByteArray(UniqueName);
-                bool[] bools = MessagePackSerializer.Deserialize<bool[]>(byteArray);
-                //MemoryStream ms = new MemoryStream(byteArray);
-                //bool[] bools = (bool[])formatter.Deserialize(ms);
-                for (int i = 0; i < bools.Length; i++)
-                    Buttons[i].Checked = bools[i];
+                bools = MessagePackSerializer.Deserialize<bool[]>(reader.GetByteArray(UniqueName));
             }
+            catch
+            {
+                return false;
+            }
+
+            // ボタン構成が変わっている場合、値の対応が取れないので読み込まない。
+            // （部分的に代入すると別の意味のボタンに古い値が入ってしまう）
+            if (bools == null || bools.Length != Buttons.Count) return false;
+
+            for (int i = 0; i < bools.Length; i++)
+                Buttons[i].Checked = bools[i];
+
             return true;
         }
 

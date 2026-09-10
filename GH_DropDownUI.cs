@@ -104,6 +104,8 @@ namespace GH_CustomUI
 
         private void OnValueChanged(int pre, int post)
         {
+            NotifyDocumentModified();
+
             Owner.Owner.RecordUndoEvent("Selector",
                 new DropDownUndoAction<T>(pre, post, this));
 
@@ -277,8 +279,10 @@ namespace GH_CustomUI
 
         public override bool Read(GH_IReader reader)
         {
-            int idx_ref = 0;
-            reader.TryGetInt32(UniqueName, ref idx_ref);
+            // 保存されていない場合は既定の選択を維持する
+            int idx_ref = SelectedIndex;
+            if (!reader.TryGetInt32(UniqueName, ref idx_ref)) return false;
+
             SelectedIndex = idx_ref;
             return true;
         }

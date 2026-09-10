@@ -134,21 +134,41 @@ namespace GH_CustomUI
         public virtual void UpdateLayout() { }
 
         /// <summary>
-        /// Serialize時にはユニークな名前をつける必要があるので、
-        /// UIパーツの登録順をクラス名に足して名前とする。
+        /// 登録先の中でのUIパーツの位置。AddUIで自動的に振られる。
+        /// Serialize時の名前の一部となるため、
+        /// 保存値を維持したまま並びを変えたい場合は明示的に指定してもよい。
         /// </summary>
-        public string UniqueName
-        {
-            get
-            {
-                int idx = Owner == null ? 0 : Owner.componentUIs.IndexOf(this);
-                return $"{this.GetType().Name}{idx}";
-            }
-        }
+        /// <remarks>
+        /// AddUIを経由せずに配置したパーツは-1のままとなり、
+        /// 同じ型のパーツが複数あると名前が衝突する。
+        /// </remarks>
+        public int Index { get; set; } = -1;
+
+        /// <summary>
+        /// Serialize時にはユニークな名前をつける必要があるので、
+        /// クラス名にIndexを足して名前とする。
+        /// 入れ子のパーツは親がチャンクを分けるため、
+        /// 一意であればよいのは親の中だけとなる。
+        /// </summary>
+        public string UniqueName => $"{this.GetType().Name}{Index}";
 
         public TooltipData? TooltipData { get; set; } = null;
 
         public virtual bool TooltipEnabled => TooltipData != null;
+
+        /// <summary>
+        /// UIパーツの値が変わったことをドキュメントへ伝える。
+        /// アプリケーションの未保存状態の表示につながる。
+        /// </summary>
+        /// <remarks>
+        /// 値の変更をExpireSolutionで伝えている利用側もあるが、
+        /// 再計算を伴わない更新で済ませたい場合はそれを呼べない。
+        /// 通知は再計算とは別の関心事なので、パーツ側で必ず行う。
+        /// ドキュメントに属していない状態(ファイル読み込み中など)では
+        /// OnPingDocumentがnullを返すため何も起きない。
+        /// </remarks>
+        protected void NotifyDocumentModified()
+            => Owner?.Owner?.OnPingDocument()?.Modified();
 
         /// <summary>
         /// 仮にこれだけ実装。他のUIイベントも実装する。
