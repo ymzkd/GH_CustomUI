@@ -18,6 +18,65 @@ namespace GH_CustomUI
         void OnDisplayExpired();
     }
 
+    /// <summary>
+    /// UIパーツへのイベント配送。ホスト側のAttributesが共通で使う。
+    /// </summary>
+    public static class GH_UIDispatch
+    {
+        /// <summary>
+        /// UIパーツへイベントを配り、Captureを返したパーツを掴み続ける。
+        /// </summary>
+        /// <param name="targets">配送先のUIパーツ</param>
+        /// <param name="active">
+        /// 掴んでいるパーツ。Captureで設定され、Releaseで解除される。
+        /// </param>
+        /// <param name="handler">各パーツへ渡すイベント</param>
+        /// <param name="onRedraw">再描画が要求されたときの通知先</param>
+        /// <param name="fallback">
+        /// どのパーツも拾わなかったときの転送先。
+        /// 掴んでいるパーツがある間は呼ばない。
+        /// </param>
+        public static GH_ObjectResponse ToParts(
+            IEnumerable<GH_UIParts> targets,
+            ref GH_UIParts active,
+            Func<GH_UIParts, UIResponse> handler,
+            Action onRedraw,
+            Func<GH_ObjectResponse> fallback = null)
+        {
+            UIResponse response = UIResponse.Ignore;
+
+            if (active != null)
+            {
+                response = handler(active);
+
+                if (response.Response == GH_ObjectResponse.Release)
+                    active = null;
+            }
+            else
+            {
+                foreach (GH_UIParts ui in targets)
+                {
+                    response = handler(ui);
+                    if (response.Response == GH_ObjectResponse.Ignore)
+                        continue;
+                    else if (response.Response == GH_ObjectResponse.Capture)
+                        active = ui;
+
+                    // 操作終了(Ignore以外)
+                    break;
+                }
+
+                if (response.Response == GH_ObjectResponse.Ignore && fallback != null)
+                    return fallback();
+            }
+
+            if (response.Redraw)
+                onRedraw();
+
+            return response.Response;
+        }
+    }
+
     public struct TooltipData
     {
         /// <summary>
