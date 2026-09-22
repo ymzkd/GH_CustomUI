@@ -1,4 +1,5 @@
 ﻿using GH_IO.Serialization;
+using System;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
@@ -102,6 +103,8 @@ namespace GH_CustomUI
         protected void UpdateLayout()
         {
             // Component本体とUIのレイアウトを調整
+            if (componentUIs.Count == 0) return;
+
             float maxUIWidth = componentUIs.Max(x => x.MinWidth());
             float sumUIHeight = componentUIs.Sum(x => x.Height());
 
@@ -143,206 +146,55 @@ namespace GH_CustomUI
             }
         }
 
+        /// <summary>
+        /// UIパーツへイベントを配る。掴んでいるパーツの管理は共通実装に任せる。
+        /// </summary>
+        private GH_ObjectResponse DispatchToUIParts(Func<GH_UIParts, UIResponse> handler,
+            Func<GH_ObjectResponse> fallback = null)
+            => GH_UIDispatch.ToParts(componentUIs, ref ActiveObject,
+                                     handler, OnDisplayExpired, fallback);
+
+        /// <remarks>
+        /// リサイズ枠の操作は<see cref="GH_ResizableAttributes{T}"/>が持っているので、
+        /// Mouse系は基底を先に通してからUIパーツへ配る。
+        /// Component側のホストが基底を「誰も拾わなかったときの転送先」に
+        /// しているのと順序が逆なのはこのため。
+        /// </remarks>
         public override GH_ObjectResponse RespondToMouseDown(GH_Canvas sender, GH_CanvasMouseEvent e)
         {
-            // Resizable Paramの実装を先行実行
-            GH_ObjectResponse obj_response = base.RespondToMouseDown(sender, e);
-            if (obj_response != GH_ObjectResponse.Ignore)
-                return obj_response;
+            GH_ObjectResponse resize = base.RespondToMouseDown(sender, e);
+            if (resize != GH_ObjectResponse.Ignore) return resize;
 
-            UIResponse response = UIResponse.Ignore;
-            if (ActiveObject != null)
-            {
-                response = ActiveObject.RespondToMouseDown(sender, e);
-
-                if (response.Response == GH_ObjectResponse.Release)
-                    ActiveObject = null;
-            }
-            else
-            {
-                foreach (GH_UIParts ui in componentUIs)
-                {
-                    response = ui.RespondToMouseDown(sender, e);
-                    if (response.Response == GH_ObjectResponse.Ignore)
-                        continue;
-                    else if (response.Response == GH_ObjectResponse.Capture)
-                        ActiveObject = ui;
-
-                    // 操作終了(Ignore以外)
-                    break;
-                }
-            }
-
-            if (response.Redraw)
-                this.OnDisplayExpired();
-
-            return response.Response;
+            return DispatchToUIParts(ui => ui.RespondToMouseDown(sender, e));
         }
 
         public override GH_ObjectResponse RespondToMouseUp(GH_Canvas sender, GH_CanvasMouseEvent e)
         {
-            // Resizable Paramの実装を先行実行
-            GH_ObjectResponse obj_response = base.RespondToMouseUp(sender, e);
-            if (obj_response != GH_ObjectResponse.Ignore)
-                return obj_response;
+            GH_ObjectResponse resize = base.RespondToMouseUp(sender, e);
+            if (resize != GH_ObjectResponse.Ignore) return resize;
 
-            UIResponse response = UIResponse.Ignore;
-            if (ActiveObject != null)
-            {
-                response = ActiveObject.RespondToMouseUp(sender, e);
-
-                if (response.Response == GH_ObjectResponse.Release)
-                    ActiveObject = null;
-            }
-            else
-            {
-                foreach (GH_UIParts ui in componentUIs)
-                {
-                    response = ui.RespondToMouseUp(sender, e);
-                    if (response.Response == GH_ObjectResponse.Ignore)
-                        continue;
-                    else if (response.Response == GH_ObjectResponse.Capture)
-                        ActiveObject = ui;
-
-                    // 操作終了(Ignore以外)
-                    break;
-                }
-            }
-
-            if (response.Redraw)
-                this.OnDisplayExpired();
-
-            return response.Response;
+            return DispatchToUIParts(ui => ui.RespondToMouseUp(sender, e));
         }
 
         public override GH_ObjectResponse RespondToMouseMove(GH_Canvas sender, GH_CanvasMouseEvent e)
         {
-            // Resizable Paramの実装を先行実行
-            GH_ObjectResponse obj_response = base.RespondToMouseMove(sender, e);
-            if (obj_response != GH_ObjectResponse.Ignore)
-                return obj_response;
+            GH_ObjectResponse resize = base.RespondToMouseMove(sender, e);
+            if (resize != GH_ObjectResponse.Ignore) return resize;
 
-            UIResponse response = UIResponse.Ignore;
-            if (ActiveObject != null)
-            {
-                response = ActiveObject.RespondToMouseMove(sender, e);
-
-                if (response.Response == GH_ObjectResponse.Release)
-                    ActiveObject = null;
-            }
-            else
-            {
-                foreach (GH_UIParts ui in componentUIs)
-                {
-                    response = ui.RespondToMouseMove(sender, e);
-                    if (response.Response == GH_ObjectResponse.Ignore)
-                        continue;
-                    else if (response.Response == GH_ObjectResponse.Capture)
-                        ActiveObject = ui;
-
-                    // 操作終了(Ignore以外)
-                    break;
-                }
-            }
-
-            if (response.Redraw)
-                this.OnDisplayExpired();
-
-            return response.Response;
+            return DispatchToUIParts(ui => ui.RespondToMouseMove(sender, e));
         }
 
         public override GH_ObjectResponse RespondToMouseDoubleClick(GH_Canvas sender, GH_CanvasMouseEvent e)
-        {
-            UIResponse response = UIResponse.Ignore;
-            if (ActiveObject != null)
-            {
-                response = ActiveObject.RespondToMouseDoubleClick(sender, e);
-
-                if (response.Response == GH_ObjectResponse.Release)
-                    ActiveObject = null;
-            }
-            else
-            {
-                foreach (GH_UIParts ui in componentUIs)
-                {
-                    response = ui.RespondToMouseDoubleClick(sender, e);
-                    if (response.Response == GH_ObjectResponse.Ignore)
-                        continue;
-                    else if (response.Response == GH_ObjectResponse.Capture)
-                        ActiveObject = ui;
-
-                    // 操作終了(Ignore以外)
-                    break;
-                }
-            }
-
-            if (response.Redraw)
-                this.OnDisplayExpired();
-
-            return response.Response;
-        }
+            => DispatchToUIParts(ui => ui.RespondToMouseDoubleClick(sender, e),
+                                 () => base.RespondToMouseDoubleClick(sender, e));
 
         public override GH_ObjectResponse RespondToKeyDown(GH_Canvas sender, KeyEventArgs e)
-        {
-            UIResponse response = UIResponse.Ignore;
-            if (ActiveObject != null)
-            {
-                response = ActiveObject.RespondToKeyDown(sender, e);
-
-                if (response.Response == GH_ObjectResponse.Release)
-                    ActiveObject = null;
-            }
-            else
-            {
-                foreach (GH_UIParts ui in componentUIs)
-                {
-                    response = ui.RespondToKeyDown(sender, e);
-                    if (response.Response == GH_ObjectResponse.Ignore)
-                        continue;
-                    else if (response.Response == GH_ObjectResponse.Capture)
-                        ActiveObject = ui;
-
-                    // 操作終了(Ignore以外)
-                    break;
-                }
-            }
-
-            if (response.Redraw)
-                this.OnDisplayExpired();
-
-            return response.Response;
-        }
+            => DispatchToUIParts(ui => ui.RespondToKeyDown(sender, e),
+                                 () => base.RespondToKeyDown(sender, e));
 
         public override GH_ObjectResponse RespondToKeyUp(GH_Canvas sender, KeyEventArgs e)
-        {
-            UIResponse response = UIResponse.Ignore;
-            if (ActiveObject != null)
-            {
-                response = ActiveObject.RespondToKeyUp(sender, e);
-
-                if (response.Response == GH_ObjectResponse.Release)
-                    ActiveObject = null;
-            }
-            else
-            {
-                foreach (GH_UIParts ui in componentUIs)
-                {
-                    response = ui.RespondToKeyUp(sender, e);
-                    if (response.Response == GH_ObjectResponse.Ignore)
-                        continue;
-                    else if (response.Response == GH_ObjectResponse.Capture)
-                        ActiveObject = ui;
-
-                    // 操作終了(Ignore以外)
-                    break;
-                }
-            }
-
-            if (response.Redraw)
-                this.OnDisplayExpired();
-
-            return response.Response;
-        }
+            => DispatchToUIParts(ui => ui.RespondToKeyUp(sender, e),
+                                 () => base.RespondToKeyUp(sender, e));
 
         public override void SetupTooltip(PointF canvasPoint, GH_TooltipDisplayEventArgs e)
         {
