@@ -91,8 +91,17 @@ namespace GH_CustomUI
         /// <summary>入力が変わるたびに進む世代番号。古いタスクの結果を捨てるために使う</summary>
         private long _generation;
 
-        /// <summary>このパスで収集したジョブ。反復インデックスと並び順が対応する</summary>
-        private readonly List<TJob> _jobs = new List<TJob>();
+        /// <summary>
+        /// 読み取り(<see cref="CollectJob"/>)が例外で失敗した反復の埋め草。
+        /// 反復インデックスとジョブの並び順の対応を保つために置き、メッセージだけを出力する。
+        /// </summary>
+        private sealed class CollectFailure : AsyncJob { }
+
+        /// <summary>
+        /// このパスで収集したジョブ。反復インデックスと並び順が対応する。
+        /// 読み取りに失敗した反復は <see cref="CollectFailure"/> で埋める
+        /// </summary>
+        private readonly List<AsyncJob> _jobs = new List<AsyncJob>();
 
         /// <summary>
         /// 進捗表示の間引き用タイマ。計算側は進捗を記録するだけにして、
@@ -202,6 +211,8 @@ namespace GH_CustomUI
             if (_phase == AsyncPhase.Publishing)
             {
                 _phase = AsyncPhase.Idle;
+                // 結果は出力パラメーターへ渡し終えたので、ジョブ(計算途中の大きなデータ)は抱えない
+                _jobs.Clear();
                 Message = null;
                 return;
             }
@@ -233,7 +244,21 @@ namespace GH_CustomUI
             }
 
             // 非同期実行: ここでは入力の読み取りだけを行う。計算は AfterSolveInstance で起動する
-            _jobs.Add(CollectJob(DA));
+            TJob collected;
+            try
+            {
+                collected = CollectJob(DA);
+            }
+            catch (Exception ex)
+            {
+                // 追加を飛ばすと以降の反復のジョブが1つずつ前にずれ、出力パスで
+                // 別の反復の結果を出力してしまう。メッセージだけの埋め草で位置を保つ
+                CollectFailure failure = new CollectFailure();
+                failure.AddMessage(GH_RuntimeMessageLevel.Error, ex.Message);
+                _jobs.Add(failure);
+                throw;
+            }
+            _jobs.Add(collected);
         }
 
         /// <summary>
@@ -256,7 +281,7 @@ namespace GH_CustomUI
         }
 
         /// <summary>ジョブのメッセージと結果を出力する(GHスレッドで実行する)</summary>
-        private void Publish(TJob job, IGH_DataAccess DA)
+        private void Publish(AsyncJob job, IGH_DataAccess DA)
         {
             if (job == null)
                 return;
@@ -264,7 +289,10 @@ namespace GH_CustomUI
             foreach (KeyValuePair<GH_RuntimeMessageLevel, string> message in job.Messages)
                 AddRuntimeMessage(message.Key, message.Value);
 
-            PublishJob(job, DA);
+            if (job is CollectFailure)
+                return;
+
+            PublishJob((TJob)job, DA);
         }
 
         /// <summary>
@@ -273,7 +301,8 @@ namespace GH_CustomUI
         /// </summary>
         private void StartBackgroundSolve()
         {
-            List<TJob> jobs = new List<TJob>(_jobs);
+            // 読み取りに失敗した反復は null にして計算を飛ばす(位置は保つ)
+            List<TJob> jobs = _jobs.Select(j => j is CollectFailure ? null : (TJob)j).ToList();
             bool parallel = RunJobsInParallel;
             CancellationTokenSource cts = new CancellationTokenSource();
             CancellationToken token = cts.Token;
@@ -307,25 +336,57 @@ namespace GH_CustomUI
                     }
                 }
 
-                lock (_stateLock)
-                {
-                    // キャンセル済み、または後続の solution が始まっていれば結果は捨てる。
-                    // 新しい入力での計算がすでに走っているため、そちらが出力する
-                    if (token.IsCancellationRequested || Interlocked.Read(ref _generation) != generation)
-                        return;
+                // キャンセル済み、または後続の solution が始まっていれば結果は捨てる。
+                // 新しい入力での計算がすでに走っているため、そちらが出力する
+                if (token.IsCancellationRequested || Interlocked.Read(ref _generation) != generation)
+                    return;
 
-                    _phase = AsyncPhase.Publishing;
-                }
-
-                StopProgress();
-
+                // 出力パスへの切り替え(TryBeginPublish)は GHスレッドで solution の直前に行う。
                 // 直接 ExpireSolution(true) を呼ぶとバックグラウンドからでは再計算が
                 // 走らないことがあるため、solution はドキュメント経由でスケジュールする
                 if (doc != null)
-                    doc.ScheduleSolution(1, d => ExpireSolution(false));
+                {
+                    doc.ScheduleSolution(1, d =>
+                    {
+                        if (TryBeginPublish(generation))
+                            ExpireSolution(false);
+                    });
+                }
                 else
-                    Rhino.RhinoApp.InvokeOnUiThread((Action)(() => ExpireSolution(true)));
+                {
+                    Rhino.RhinoApp.InvokeOnUiThread((Action)(() =>
+                    {
+                        if (TryBeginPublish(generation))
+                            ExpireSolution(true);
+                    }));
+                }
             }, CancellationToken.None, TaskCreationOptions, TaskScheduler.Default);
+        }
+
+        /// <summary>
+        /// 出力パスへ切り替える(GHスレッドで実行する)。
+        /// バックグラウンドの完了時点で切り替えると、出力パスが始まるまでの間に入力が変わった場合も
+        /// <see cref="BeforeSolveInstance"/> が収集をやり直さず、新しい入力に対して古い結果を出力してしまう。
+        /// また進捗の後始末もここで行う(バックグラウンドで行うと、直後に始まった次の計算の進捗を消しうる)。
+        /// </summary>
+        private bool TryBeginPublish(long generation)
+        {
+            lock (_stateLock)
+            {
+                // 打ち切られた、または後続の計算が始まっている
+                if (_phase != AsyncPhase.Running || Interlocked.Read(ref _generation) != generation)
+                    return false;
+
+                // 出力を待つ間に入力が変わって無効化されている。このあとの solution で
+                // 収集からやり直すため、古い入力での結果は出力しない
+                if (Phase == GH_SolutionPhase.Blank)
+                    return false;
+
+                _phase = AsyncPhase.Publishing;
+            }
+
+            StopProgress();
+            return true;
         }
 
         private void RunInBackground(TJob job, int index, CancellationToken token, ProgressState progress)
@@ -408,6 +469,8 @@ namespace GH_CustomUI
                 CancelRunningNoLock();
             }
             StopProgress();
+            // 打ち切ったジョブ(計算途中の大きなデータ)を次の solution まで抱えない
+            _jobs.Clear();
         }
 
         /// <summary>
@@ -429,9 +492,13 @@ namespace GH_CustomUI
             base.RemovedFromDocument(document);
         }
 
+        /// <summary>
+        /// ドキュメントを閉じたときだけ計算を打ち切る。タブの切り替え(Unloaded)では打ち切らない。
+        /// 打ち切ると戻ってきたときに出力が空のまま再計算もされず、長い計算をやり直すことにもなるため。
+        /// </summary>
         public override void DocumentContextChanged(GH_Document document, GH_DocumentContext context)
         {
-            if (context == GH_DocumentContext.Close || context == GH_DocumentContext.Unloaded)
+            if (context == GH_DocumentContext.Close)
                 CancelRunning();
             base.DocumentContextChanged(document, context);
         }
